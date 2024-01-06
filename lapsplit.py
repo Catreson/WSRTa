@@ -1,15 +1,10 @@
+import os
 import pandas as pd
 import numpy as np
-
-class Lap:
-    def __init__(self, **kwargs):
-        self.df = kwargs.get('lap_df', None)
-        self.ID = kwargs.get('lap_ID', None)
-        self.laptime = kwargs.get('laptime', None)
-        self.color = kwargs.get('lap_color', None)
-        self.path = kwargs.get('lap_path', None)
-    def reload_df(self):
-        self.df = pd.read_csv(self.path)
+from pathlib import Path
+import xml.etree.ElementTree as ET
+from xml.dom import minidom
+from bs4 import BeautifulSoup
 
 def find_laps(data, start_line, minimal_laptime = 30, finish_line_tolerance = 0.1):
     
@@ -54,7 +49,41 @@ def split_laps(data, laps):
         
     return laps_data
 
-        
+def createSessionFile(path, laps, **kwargs):
+    p = Path(path)
+    laps_path = Path.cwd() / p.stem
+    if not os.path.isdir(laps_path):
+        os.mkdir(laps_path)
+    with open(laps_path / f'{p.stem}.wsrtses', 'wb') as file:
+        rut = ET.Element('session')
+        details = ET.SubElement(rut, 'details')
+        laplist = []
+        laptimes = ET.SubElement(rut, 'laptimes')
+        rider_name = ET.SubElement(details, 'rider_name')
+        rider_name.text = kwargs.get('session_rider', 'Twoja stara')
+        track_name = ET.SubElement(details, 'track_name')
+        track_name.text = kwargs.get('session_track', 'Autodromo Nazionale di Radom')
+        ride_date = ET.SubElement(details, 'date')
+        ride_date.text = kwargs.get('session_date', '1970-01-01')
+        ride_id = ET.SubElement(details, 'identifier')
+        ride_id.text = kwargs.get('session_id', 'session')
+        no_laps = ET.SubElement(laptimes, 'no_laps')
+        no_laps.text = str(len(laps))
+        tag = kwargs.get('session_id', 'get')
+        for i, lap in enumerate(laps, 1):
+            tmp = ET.SubElement(laptimes, f'lap')
+            tmp.set('number', f'{tag}_{i}')
+            tmp.text = str(lap[1] - lap[0])
+            laplist.append(tmp)
+        tmp = minidom.parseString(ET.tostring(rut)).toprettyxml(indent="   ")
+        file.write(tmp.encode('utf-8'))
+    return laps_path, tag
+
+def saveLaps(path, laps_data, tag):
+    if not tag:
+        tag = 'l'
+    for i, lap in enumerate(laps_data):
+        lap.to_csv(f'{path}/{tag}_{i+1}.lap', index=False)
 
 if __name__ == "__main__":
 

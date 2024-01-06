@@ -1,12 +1,12 @@
 from gpse import *
-from lapsplit import Lap
+from lap import Lap
 from lapsplit import *
 from laprefer import *
-from pathlib import Path
 import tkinter as tk
 from ttkthemes import ThemedTk
 from tkinter import filedialog
 from tkinter import ttk
+import customtkinter
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure 
 from matplotlib.backends.backend_tkagg import (FigureCanvasTkAgg,  
@@ -17,17 +17,11 @@ from datetime import datetime
 import time
 import tkintermapview as tkm
 import os
-import xml.etree.ElementTree as ET
-from xml.dom import minidom
-from bs4 import BeautifulSoup
-import math
-import re
-from geopy import distance
 
 
-class LFGener(tk.LabelFrame):
+class LFGener(ttk.LabelFrame):
     def __init__(self, master, filetype, filedescription, titel, *args, **kwargs):
-        tk.LabelFrame.__init__(self, master, *args, **kwargs)
+        ttk.LabelFrame.__init__(self, master, *args, **kwargs)
         self.master = master
         self.path = ''
         self.filename = ''
@@ -102,7 +96,7 @@ class LFView(LFGener):
         LFGener.__init__(self, master, filetype = '.wsrtses', filedescription = 'WSRT Session Files', titel = 'Preview', *args, **kwargs)
     
     def buttonAction(self):
-        return
+        ViewWindow(self, self.path)
 class LFControl(tk.LabelFrame):
     def __init__(self, master, *args, **kwargs):
         tk.LabelFrame.__init__(self, master, *args, **kwargs)
@@ -172,13 +166,13 @@ class ParseWindowWSRT(tk.Toplevel):
                 completeParsing(self.path, frequency=inp, save_file = self.fileSas.get())
                 self.label_state.config(text="Complete",bg="green")
                 self.update_idletasks()
-                time.sleep(3)
+                time.sleep(0.1)
                 try:
                     self.master.label_processing.config(text="Complete",bg="green")
                 except:
                     print('No use like this')
                 self.update_idletasks()
-                time.sleep(3)
+                time.sleep(0.1)
                 self.destroy()
             except Exception as erro:
                 self.label_state.config(text="ERROR",bg="red")
@@ -225,7 +219,7 @@ class RiderInfo(tk.Frame):
         self.master.session_metadata['session_id'] = self.input_id.get()
         self.master.geometry('700x320')
         print(self.master.session_metadata)
-class FnishlineInfo(tk.Frame):
+class FinishlineInfo(tk.Frame):
     def __init__(self, master, path, *args, **kwargs):
         tk.Frame.__init__(self, master, *args, **kwargs)
         self.master = master
@@ -310,46 +304,15 @@ class FnishlineInfo(tk.Frame):
             self.set2ndPoint(coords)
         self.click_count = (self.click_count + 1) % 2
 
-    def createSessionFile(self, laps):
-        p = Path(self.path)
-        laps_path = Path.cwd() / p.stem
-        if not os.path.isdir(laps_path):
-            os.mkdir(laps_path)
-        with open(laps_path / f'{p.stem}.wsrtses', 'wb') as file:
-            rut = ET.Element('session')
-            details = ET.SubElement(rut, 'details')
-            laplist = []
-            laptimes = ET.SubElement(rut, 'laptimes')
-            rider_name = ET.SubElement(details, 'rider_name')
-            rider_name.text = self.master.session_metadata['session_rider']
-            track_name = ET.SubElement(details, 'track_name')
-            track_name.text = self.master.session_metadata['session_track']
-            ride_date = ET.SubElement(details, 'date')
-            ride_date.text = self.master.session_metadata['session_date']
-            ride_id = ET.SubElement(details, 'identifier')
-            ride_id.text = self.master.session_metadata['session_id']
-
-            no_laps = ET.SubElement(laptimes, 'no_laps')
-            no_laps.text = str(len(laps))
-            for i, lap in enumerate(laps, 1):
-                tmp = ET.SubElement(laptimes, f'lap')
-                tmp.set('number', f'l{i}')
-                tmp.text = str(lap[1] - lap[0])
-                laplist.append(tmp)
-            tmp = minidom.parseString(ET.tostring(rut)).toprettyxml(indent="   ")
-            file.write(tmp.encode('utf-8'))
-        return laps_path
-
     def buttonContinue(self):
         start_line = [(float(self.input_lon_1.get()), float(self.input_lat_1.get())), (float(self.input_lon_2.get()), float(self.input_lat_2.get()))]
         minimal_laptime = float(self.input_minimal.get())
         finish_line_tolerance = float(self.input_tolerance.get())
         self.master.master.label_processing.config(text="Processing...",fg="yellow")
         laps = find_laps(self.data, start_line, minimal_laptime, finish_line_tolerance)
-        laps_path = self.createSessionFile(laps)
+        laps_path, tag = createSessionFile(str(self.path), laps, **self.master.session_metadata)
         laps_data = split_laps(self.data, laps)
-        for i, lap in enumerate(laps_data):
-            lap.to_csv(f'{laps_path}/l{i+1}.lap', index=False)
+        saveLaps(laps_path, laps_data, tag)
         self.master.master.label_processing.config(text="Complete",bg="green")
 class SplitWindow(tk.Toplevel):
     def __init__(self, master, path, *args, **kwargs):
@@ -359,7 +322,7 @@ class SplitWindow(tk.Toplevel):
         self.session_metadata = {}
         self.frames = []
         self.frames.append(RiderInfo(self, self.path))
-        self.frames.append(FnishlineInfo(self, self.path))
+        self.frames.append(FinishlineInfo(self, self.path))
 
         self.frames[0].pack()
         self.cp = SmallControls(self, buttonContinue=self.buttonContinue)
@@ -376,18 +339,303 @@ class SplitWindow(tk.Toplevel):
             self.cp.pack()
         else:
             self.destroy()
+class LapSelectionWindow(tk.Toplevel):
+    def __init__(self, master, *args, **kwargs):
+            tk.Toplevel.__init__(self, master, *args, **kwargs)
+            self.master = master
+            self.title('Lap selection')
+            self.config(width=400,
+                        height=200)
+            self.lift()
+            self.attributes('-topmost',True)
+            self.after_idle(self.attributes,'-topmost',False)
+            self.lap_list_select = tk.Variable(value=[[x.ID, x.laptime] for x in self.master.laps.values()])
+            self.selec_list = tk.Listbox(self,
+                             height=5,
+                             listvariable=self.lap_list_select,
+                             selectmode=tk.MULTIPLE)
+            self.selec_butt = ttk.Button(self,
+                                         text = 'Select Laps',
+                                         command = self.loadLaps)
+            self.laps_selected = tk.Variable()
 
-class ViewWindow(tk.Toplevel):
+            self.reference_list = tk.Listbox(self,
+                             height=5,
+                             listvariable=self.laps_selected,
+                             selectmode=tk.SINGLE)
+            self.reference_butt = ttk.Button(self,
+                                         text = 'Refer to Lap',
+                                         command = self.referLaps)
+            
+            self.save_butt = ttk.Button(self,
+                                         text = 'Save current state',
+                                         command = self.saveLaps)
+
+            self.selec_list.grid(column=0, row=0)
+            self.selec_butt.grid(column=0,row=1)
+            self.reference_list.grid(column=1, row=0)
+            self.reference_butt.grid(column=1, row=1)
+            self.save_butt.grid(column=2,row=0)
+
+    def loadLaps(self):
+        lista = []
+        for i in self.selec_list.curselection():
+            tmp = self.selec_list.get(i)[0]
+            lista.append([tmp, self.master.laps[tmp].color])
+        self.master.selected_laps_ids = [x[0] for x in lista]
+        self.laps_selected.set(lista)
+
+    def referLaps(self):
+        self.master.reference_lap_id = self.reference_list.get(self.reference_list.curselection())[0]
+        referLapsToLap([self.master.laps[x] for x in self.master.selected_laps_ids], self.master.laps[self.master.reference_lap_id].ID)
+        self.master.map_frame.plotLaps()
+        self.master.loadElements()
+
+    def saveLaps(self):
+        for lap in self.master.laps.values():
+            lap.saveLap()
+class ScrollFrame(ttk.Frame):
+    def __init__(self, master, *args, **kwargs):
+        ttk.Frame.__init__(self, master, *args, **kwargs)
+        canvas = tk.Canvas(self)
+        scrollbar = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
+        self.scroll_frame = ttk.Frame(canvas)
+
+        self.scroll_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(
+                scrollregion=canvas.bbox("all")
+            )
+        )
+
+        canvas.create_window((0, 0), window=self.scroll_frame, anchor="nw")
+
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+class MapFrame(tk.Frame):
+    def __init__(self, master, coords, *args, **kwargs):
+        tk.Frame.__init__(self, master, *args, **kwargs)
+        self.master = master
+        self.height= 400
+        self.width = 600
+        self.start_coords = coords
+        self.config(height=self.height,
+                    width=self.width)
+        self.map_widget = tkm.TkinterMapView(self, width=self.width, height=self.height, corner_radius=0)
+        self.map_widget.set_tile_server("https://mt0.google.com/vt/lyrs=s&hl=en&x={x}&y={y}&z={z}&s=Ga", max_zoom=22)
+        self.map_widget.set_position(self.start_coords.iloc[0], self.start_coords.iloc[1])
+
+        self.map_widget.pack()
+
+    def showMapPoint(self):
+        lap = self.master.laps[self.master.reference_lap_id]
+        distancer = self.master.distancer
+        ind = 0
+        coords = []
+        for i, row in lap.df.iterrows():
+            if row['distance'] > distancer:
+                ind = i
+                break
+        coords = perpendicularLine(lap.df['latitude'][ind], lap.df['longitude'][ind], lap.df['course'][ind], 10)
+        self.map_widget.set_path(coords,
+                             color=lap.color,
+                             width=2)
+
+    def plotLaps(self):
+        reference_lap = self.master.laps[self.master.reference_lap_id]
+        x_min = self.master.x_lims[0] if self.master.x_lims[0] > 0 else 0
+        x_max = self.master.x_lims[1]
+        i_min = 0
+        i_max = len(reference_lap.df['longitude']) - 1
+        min_set = False
+        for i, row in reference_lap.df.iterrows():    
+            if  not min_set and row['distance'] > x_min:
+                i_min = i
+                min_set = True
+            if row['distance'] > x_max:
+                i_max = i
+                break
+        print(f'i_max {i_max}, i_min { i_min}')
+        self.map_widget.set_position(reference_lap.df['latitude'][5], reference_lap.df['longitude'][5])
+        self.map_widget.set_path(list(zip(reference_lap.df['latitude'][i_min:i_max], reference_lap.df['longitude'][i_min:i_max])),
+                             color=reference_lap.color,
+                             width=2)
+        for lap_id in self.master.selected_laps_ids:
+            if lap_id != reference_lap.ID:
+                ises = reference_lap.df[lap_id][i_min:i_max]
+                coords = [(self.master.laps[lap_id].df['latitude'][x], self.master.laps[lap_id].df['longitude'][x]) for x in ises]
+                self.map_widget.set_path(coords,
+                                    color=self.master.laps[lap_id].color,
+                                    width=2)
+
+class WideChartFrame(ScrollFrame):
+    def __init__(self, master, *args, **kwargs):
+        ScrollFrame.__init__(self, master, *args, **kwargs)
+        self.master = master
+        self.height = 600
+        self.width = 1000
+        self.pack_propagate(False)
+        self.config(height=self.height,
+                    width=self.width)
+        self.scroll_frame.config(height= 2*self.height,
+                                 width=self.width)
+        self.selected_add = tk.StringVar()
+        self.options = [x for x in self.master.laps[self.master.reference_lap_id].df.columns]
+        self.selected_add.set(self.options[1])
+
+        self.fig = Figure(figsize = (self.width/self.master.depei, len(self.master.tag_list) * 250/self.master.depei), 
+                 dpi = 100)
+        self.canvas = FigureCanvasTkAgg(self.fig, 
+                               master = self.scroll_frame)
+        self.canvas.draw()
+        self.toolbar = NavigationToolbar2Tk(self.canvas, 
+                                   self.scroll_frame) 
+        self.toolbar.update() 
+        
+        self.canvas_wg = self.canvas.get_tk_widget()
+        self.addRemoveChart('0')
+
+    def reloadCharts(self):
+        self.canvas_wg.pack_forget()
+        self.toolbar.pack_forget()
+
+        self.toolbar.pack(side=tk.TOP, fill=tk.X)
+        self.canvas_wg.pack(side=tk.TOP)
+
+
+    def addChart(self, tag):
+        if tag not in self.master.tag_list:
+            self.master.tag_list.append(tag)
+            self.addRemoveChart('+')   
+
+    def removeChart(self, tag):
+        if tag in self.master.tag_list:
+            self.master.tag_list.remove(tag)
+            self.addRemoveChart('-')    
+
+    def on_xlims_change(self, event_ax):
+        self.master.x_lims = event_ax.get_xlim()
+        self.master.map_frame.map_widget.delete_all_path()
+        self.master.map_frame.plotLaps()
+
+    def on_click(self, event):
+        self.master.distancer = event.xdata
+        if event.button == 3:
+            self.master.map_frame.map_widget.delete_all_path()
+            self.master.map_frame.showMapPoint()
+            self.master.map_frame.plotLaps()
+
+    def addRemoveChart(self, sign):
+        tmp = self.fig.get_size_inches()
+        self.canvas_wg.destroy()
+        self.toolbar.destroy()
+        additional_height = 250/self.master.depei if sign == '+' else -250/self.master.depei if sign =='-' else 0
+        reference_lap = self.master.laps[self.master.reference_lap_id]
+
+        self.fig = Figure(figsize = (tmp[0], tmp[1] + additional_height), 
+                 dpi = 100) 
+        no_plots = len(self.master.tag_list)
+        plot_list = []
+        for i, tagg in enumerate(self.master.tag_list):
+            if i == 0:
+                plot_list.append(self.fig.add_subplot(no_plots, 1, i + 1))
+            else:
+                plot_list.append(self.fig.add_subplot(no_plots, 1, i + 1, sharex=plot_list[0]))
+            plot_list[i].plot(reference_lap.df['distance'], reference_lap.df[tagg], color = reference_lap.color)
+            for lap_id in self.master.selected_laps_ids:
+                if lap_id != self.master.reference_lap_id:
+                    lap = self.master.laps[lap_id]
+                    xses = reference_lap.df['distance']
+                    yreks = [lap.df[tagg][x] for x in reference_lap.df[lap.ID]]
+                    plot_list[i].plot(xses, yreks, color = lap.color)
+            plot_list[i].grid(visible=True)
+            plot_list[i].set_ylabel(tagg)
+            if i == 0:
+                plot_list[i].callbacks.connect('xlim_changed', self.on_xlims_change)
+            cid = self.fig.canvas.mpl_connect('button_press_event', self.on_click)
+        self.canvas = FigureCanvasTkAgg(self.fig, 
+                           master = self.scroll_frame)
+        self.canvas.draw()
+        self.toolbar = NavigationToolbar2Tk(self.canvas, 
+                                   self.scroll_frame) 
+        self.toolbar.update()  
+        self.canvas_wg = self.canvas.get_tk_widget()
+        #canvas_wg.config(yscrollcommand=vw.set)
+        #canvas_wg.configure(scrollregion=canvas_wg.bbox("all"))
+        self.reloadCharts()
+
+class ScatterFrame(tk.Frame):
     pass
 
-class MainWindow():
+class ChartControlFrame(tk.Frame):
     def __init__(self, master, *args, **kwargs):
-        self.frame = tk.Frame(master)
+        tk.Frame.__init__(self, master, *args, **kwargs)
         self.master = master
-        self.lfParse = LFParse(self.frame)
-        self.lfSplit = LFSplit(self.frame)
-        self.lfView = LFView(self.frame)
-        self.lfControl = LFControl(self.frame)
+        self.add_butt = tk.Button(self,
+                         text='Add chart',
+                         command=lambda: self.master.chart_frame.addChart(self.master.chart_frame.selected_add.get()))
+        self.remove_butt = tk.Button(self,
+                         text='Remove  chart',
+                         command=lambda: self.master.chart_frame.removeChart(self.master.chart_frame.selected_add.get()))
+        self.add_list = tk.OptionMenu(self,
+                             self.master.chart_frame.selected_add,
+                             *self.master.chart_frame.options)
+        
+        self.add_butt.pack()
+        self.remove_butt.pack()
+        self.add_list.pack()
+
+class ViewWindow(tk.Toplevel):
+        def __init__(self, master, path, *args, **kwargs):
+            tk.Toplevel.__init__(self, master, *args, **kwargs)
+            self.master = master
+            #self.grid_propagate(False)
+            self.title('Laps preview')
+            self.laps = None
+            self.selected_laps_ids = None
+            self.reference_lap_id = None
+            self.x_lims = [0, 10000]
+            self.distancer = 10
+            self.tag_list = ['gps_speed']
+            self.path = path
+            self.config(height=1000,
+                        width=1600)
+            self.depei = self.winfo_fpixels('1i')
+            self.loadLaps()
+            self.lap_selection = LapSelectionWindow(self)
+
+            self.map_frame = MapFrame(self, next(iter(self.laps.values())).df[['latitude', 'longitude']].iloc[5])
+            self.chart_frame = None
+            self.chart_controls = None
+            self.scatter_frame = ScatterFrame(self)
+
+            self.map_frame.grid(column=1,row=0,
+                                sticky=tk.E)
+
+        def loadLaps(self):
+            self.laps = getLaps(self.path)
+
+        def loadElements(self):
+            self.chart_frame = WideChartFrame(self)
+            self.chart_controls = ChartControlFrame(self)
+            self.chart_controls.grid(column=0,row=0,
+                                  sticky=tk.W)
+            self.chart_frame.grid(column=0,row=1,
+                                  rowspan=3,
+                                  sticky=tk.W)
+            
+
+class MainWindow(tk.Frame):
+    def __init__(self, master, *args, **kwargs):
+        ttk.Frame.__init__(self, master, *args, **kwargs)
+        self.master = master
+        self.lfParse = LFParse(self)
+        self.lfSplit = LFSplit(self)
+        self.lfView = LFView(self)
+        self.lfControl = LFControl(self)
         self.pack_self()
 
     def pack_self(self):
@@ -397,11 +645,11 @@ class MainWindow():
         self.lfControl.pack(side="left",anchor=tk.SW)
 
 if __name__ == '__main__':
-    rut = ThemedTk(theme="clam")
+    rut = ThemedTk('Arc')
+    rut.iconbitmap('wsrta.ico')
     rut.title('File basic analysis and parsing')
-    rut.config(background="white")
-    rut.geometry('600x200')
-    MainWindow(rut).frame.pack()
+    rut.geometry('580x140')
+    MainWindow(rut).pack()
     plt.style.use('dark_background')
     #main lup
     rut.mainloop()
