@@ -8,36 +8,6 @@ from lap import Lap
 from bs4 import BeautifulSoup
 from lapsplit import calculateDistance, compareDistance
 
-def referLapsToLap1(laps = ['l0',pd.DataFrame()], reference_lap_index = 0, reference_lap_ID='l0'):
-    for name in laps:
-        print(name[0])
-    index_list = {name[0]:0 for name in laps}
-    vals = {name[0]:[] for name in laps}
-    for line in list(zip(laps[reference_lap_index][1]['latitude'], laps[reference_lap_index][1]['longitude'], laps[reference_lap_index][1]['course'])):
-        rad_argument = ((2 * math.pi - math.radians(float(line[2]))) + math.pi/2) % (2 * math.pi)
-        argument = -1.0 / math.tan(rad_argument)
-        b =  float(line[0]) - float(line[1]) * argument
-        tripwire = {'A':argument, 'B': -1, 'C':b}
-        #print(f'Lat: {line[0]}, Calculated_lat: {tripwire["A"] * float(line[1]) + tripwire["C"]}')
-        for lap in laps:
-            if lap[0] != reference_lap_ID:
-                if index_list[lap[0]] < len(lap[1]['longitude']) - 2:
-                    x1 = lap[1]['longitude'][index_list[lap[0]]]
-                    x2 = lap[1]['longitude'][index_list[lap[0]] + 1]
-                    y1 = lap[1]['latitude'][index_list[lap[0]]]
-                    y2 = lap[1]['latitude'][index_list[lap[0]] + 1]
-                    cnt = 0
-                    while compareDistance(tripwire['A'], tripwire['B'], tripwire['C'], x1, y1, x2, y2) and index_list[lap[0]] < len(lap[1]['longitude']) - 2:
-                        index_list[lap[0]] += 1
-                        x1 = lap[1]['longitude'][index_list[lap[0]]]
-                        x2 = lap[1]['longitude'][index_list[lap[0]] + 1]
-                        y1 = lap[1]['latitude'][index_list[lap[0]]]
-                        y2 = lap[1]['latitude'][index_list[lap[0]] + 1]
-                vals[lap[0]].append(index_list[lap[0]])
-    for lap in laps:
-        if lap[0] != reference_lap_ID:
-            laps[reference_lap_index][1][lap[0]] = vals[lap[0]]
-    print('Refering complete')
 
 def referLapsToLap(laps = [Lap()], reference_lap_ID='l0'):
     print('Refering...')

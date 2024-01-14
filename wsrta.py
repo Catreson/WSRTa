@@ -530,13 +530,12 @@ class MapFrame(tk.Frame):
     def update(self):
         self.plotLaps()
         self.showMapPoint()
-
 class MapFrame1(tk.Frame):
     def __init__(self, master, king, *args, **kwargs):
         tk.Frame.__init__(self, master, *args, **kwargs)
         self.master = master
         self.king = king
-        self.map_widget = tkm.TkinterMapView(self, height=600)
+        self.map_widget = tkm.TkinterMapView(self)
         self.map_widget.pack(fill=tk.BOTH, expand=True)
         self.map_widget.set_tile_server("https://mt0.google.com/vt/lyrs=s&hl=en&x={x}&y={y}&z={z}&s=Ga", max_zoom=22)
         self.map_widget.set_position(self.king.lat_start, self.king.lon_start)
@@ -590,6 +589,7 @@ class MapFrame1(tk.Frame):
     def update(self):
         self.plotLaps()
         self.showMapPoint()
+
 class WideChartFrame(ScrollFrame):
     def __init__(self, master, king, *args, **kwargs):
         ScrollFrame.__init__(self, master, *args, **kwargs)
@@ -727,13 +727,148 @@ class WideChartFrame(ScrollFrame):
         self.canvas_wg = self.canvas.get_tk_widget()
         self.reloadCharts()
 
+class WideChartFrame1(ScrollFrame):
+    def __init__(self, master, king, *args, **kwargs):
+        ScrollFrame.__init__(self, master, *args, **kwargs)
+        self.master = master
+        self.king = king
+        self.height = self.master.winfo_height()
+        self.width = self.master.winfo_width()
+        self.tag_list = ['gps_speed']
+        #self.pack_propagate(False)
+        self.config(height=self.height,
+                    width=self.width)
+        self.scroll_frame.config(height= 3*self.height,
+                                 width=self.width)
+        self.selected_add = tk.StringVar()
+        self.options = [x for x in self.king.laps[self.king.reference_lap_id].df.columns]
+        self.selected_add.set(self.options[1])
+
+        self.fig = Figure(figsize = (self.width/self.king.depei, len(self.tag_list) * (self.width/4)/self.king.depei), 
+                 dpi = 100)
+        self.canvas = FigureCanvasTkAgg(self.fig, 
+                               master = self.scroll_frame)
+        self.canvas.draw()
+        self.toolbar = NavigationToolbar2Tk(self.canvas, 
+                                   self.scroll_frame) 
+        self.toolbar.update() 
+        
+        self.canvas_wg = self.canvas.get_tk_widget()
+        
+        self.control_panel = tk.Frame(self.scroll_frame)
+        self.add_butt = tk.Button(self.control_panel,
+                         text='Add chart',
+                         command=self.addChart)
+        self.remove_butt = tk.Button(self.control_panel,
+                         text='Remove  chart',
+                         command=self.removeChart)
+        self.add_list = tk.OptionMenu(self.control_panel,
+                             self.selected_add,
+                             *self.options)
+        
+        self.bmanage = tk.Button(self.control_panel, text='manage',
+                                 command = self.manage
+                                 )
+        self.bforget = tk.Button(self.control_panel, text='forget',
+                                 command = self.forget
+                                 )
+
+        self.add_list.pack(side=tk.LEFT)
+        self.add_butt.pack(side=tk.LEFT)
+        self.remove_butt.pack(side=tk.LEFT)
+        self.bmanage.pack(side=tk.LEFT)
+        self.bforget.pack(side=tk.LEFT)
+        self.control_panel.pack(side=tk.TOP, fill=tk.X)
+        
+        self.king.subscribeAll(self.addRemoveChart)
+        self.addRemoveChart('0')
+
+    def manage(self):
+        test=self.king.wm_manage(self.master)
+
+    def forget(self):
+        self.king.wm_forget(self.master)
+        self.pack()
+
+    def reloadCharts(self):
+        self.canvas_wg.pack_forget()
+        self.toolbar.pack_forget()
+
+        self.toolbar.pack(side=tk.TOP, fill=tk.X)
+        self.canvas_wg.pack(side=tk.TOP)
+
+
+    def addChart(self):
+        tag = self.selected_add.get()
+        if tag not in self.tag_list:
+            self.tag_list.append(tag)
+            self.addRemoveChart('+')   
+
+    def removeChart(self):
+        tag = self.selected_add.get()
+        if tag in self.tag_list:
+            self.tag_list.remove(tag)
+            self.addRemoveChart('-')    
+
+    def on_xlims_change(self, event_ax):
+        x_lims = event_ax.get_xlim()
+        self.king.setXLims(x_lims)
+
+    def on_click(self, event):
+        if event.button == 3:
+            distancer = event.xdata
+            self.king.setDistancer(distancer)
+            for plot in self.plot_list:
+                try:
+                    plot.lines = plot.get_lines()[0]
+                except:
+                    print('Chuj')
+                plot.axvline(x=event.xdata, color="g", linewidth=2)
+
+    def addRemoveChart(self, sign = '0'):
+        tmp = self.fig.get_size_inches()
+        self.canvas_wg.destroy()
+        self.toolbar.destroy()
+        additional_height = (self.width/4)/self.king.depei if sign == '+' else -(self.width/4)/self.king.depei if sign =='-' else 0
+        reference_lap = self.king.laps[self.king.reference_lap_id]
+
+        self.fig = Figure(figsize = (tmp[0], tmp[1] + additional_height), 
+                 dpi = 100) 
+        no_plots = len(self.tag_list)
+        self.plot_list = []
+        for i, tagg in enumerate(self.tag_list):
+            if i == 0:
+                self.plot_list.append(self.fig.add_subplot(no_plots, 1, i + 1))
+            else:
+                self.plot_list.append(self.fig.add_subplot(no_plots, 1, i + 1, sharex=self.plot_list[0]))
+            self.plot_list[i].plot(reference_lap.df['distance'], reference_lap.df[tagg], color = reference_lap.color)
+            for lap_id in self.king.selected_laps_ids:
+                if lap_id != self.king.reference_lap_id:
+                    lap = self.king.laps[lap_id]
+                    xses = reference_lap.df['distance']
+                    yreks = [lap.df[tagg][x] for x in reference_lap.df[lap.ID]]
+                    self.plot_list[i].plot(xses, yreks, color = lap.color)
+            self.plot_list[i].grid(visible=True)
+            self.plot_list[i].set_ylabel(tagg)
+            if i == 0:
+                self.plot_list[i].callbacks.connect('xlim_changed', self.on_xlims_change)
+            cid = self.fig.canvas.mpl_connect('button_press_event', self.on_click)
+        self.canvas = FigureCanvasTkAgg(self.fig, 
+                           master = self.scroll_frame)
+        self.canvas.draw()
+        self.toolbar = NavigationToolbar2Tk(self.canvas, 
+                                   self.scroll_frame) 
+        self.toolbar.update()  
+        self.canvas_wg = self.canvas.get_tk_widget()
+        self.reloadCharts()
+
 class SquareChartFrame(ScrollFrame):
     def __init__(self, master, king, *args, **kwargs):
         ScrollFrame.__init__(self, master, *args, **kwargs)
         self.master = master
         self.king = king
-        self.height = 600
-        self.width = 600
+        self.height = self.master.winfo_height()
+        self.width = self.master.winfo_width()
         self.tag_list = [['acc_n_g', 'acc_t_g']]
         self.pack_propagate(False)
         self.config(height=self.height,
@@ -841,7 +976,7 @@ class SquareChartFrame(ScrollFrame):
             if i == 0:
                 self.plot_list.append(self.fig.add_subplot(no_plots, 1, i + 1))
             else:
-                self.plot_list.append(self.fig.add_subplot(no_plots, 1, i + 1, sharex=self.plot_list[0], sharey=self.plot_list[0]))
+                self.plot_list.append(self.fig.add_subplot(no_plots, 1, i + 1))
             self.plot_list[i].scatter(reference_lap.df[tagg[0]][i_min:i_max], reference_lap.df[tagg[1]][i_min:i_max], marker = ".", sizes=[2 for x in reference_lap.df[tagg[0]][i_min:i_max]])
             """for lap_id in self.king.selected_laps_ids:
                 if lap_id != self.king.reference_lap_id:
@@ -879,15 +1014,11 @@ class TestFrame(tk.Frame):
         self.cre_butt = tk.Button(self.control,
                               text= 'Make content',
                               command = self.addTile)
-        self.ll = tk.Label(self.control,
-                           text= 'Hello\n\n\n\n\n\n\n\n\n\n\n\n\n',
-                           bg = 'red')
         self.hor_butt.pack(fill=tk.BOTH)
         self.ver_butt.pack(fill=tk.BOTH)
         self.select_tile.pack(fill=tk.BOTH)
         self.cre_butt.pack(fill=tk.BOTH)
-        self.ll.pack(fill=tk.BOTH)
-        self.control.pack(fill=tk.BOTH)
+        self.control.pack(fill=tk.BOTH, expand=1)
         self.pan = None
         self.content = None
         self.slaves = []
@@ -895,7 +1026,7 @@ class TestFrame(tk.Frame):
     def addTile(self):
         self.control.destroy()
         self.content = self.king.tile_dic[self.selected_tile.get()](self, self.king)
-        self.content.pack(fill=tk.BOTH)
+        self.content.pack(fill=tk.BOTH, expand=1)
 
     def splitVer(self):
         direction_split = tk.VERTICAL
@@ -985,7 +1116,7 @@ class ViewWindow(tk.Toplevel):
         self.x_lims = [0, 10000]
         self.distancer = 10
         self.tile_dic = {'mapa':MapFrame1,
-                         'wide chart':WideChartFrame,
+                         'wide chart':WideChartFrame1,
                          'square chart':SquareChartFrame}
         #self.tag_list = ['gps_speed']
         self.path = path
@@ -1000,7 +1131,7 @@ class ViewWindow(tk.Toplevel):
         self.add_tab = tk.Button(self.control_panel,
                                  text = '+',
                                  command= self.new_tab)
-        self.tabs_ids = ['tab1', 'tab2']
+        self.tabs_ids = ['tab1']
         #self.tabs = {self.tabs_ids[0] : TmpFrame(self, self),
         #             self.tabs_ids[1] : TmpFrame1(self, self)}
         self.tabs = {self.tabs_ids[0] : TestFrame(self, self)}
@@ -1008,6 +1139,7 @@ class ViewWindow(tk.Toplevel):
         self.control_box = ttk.Combobox(self.control_panel,
                                          textvariable=self.selected_tab_id,
                                          values = self.tabs_ids)
+        self.control_box.set(self.tabs_ids[0])
         self.control_box.pack(side=tk.LEFT)
         self.control_box.bind('<<ComboboxSelected>>', self.switch_tab)
         self.add_butt = tk.Button(self.control_panel,
@@ -1016,7 +1148,6 @@ class ViewWindow(tk.Toplevel):
         self.add_butt.pack(side=tk.LEFT)
         #self.tabs = ViewBook(self.frame, self)
         self.frame = self.tabs['tab1']
-        self.frame['bg'] = 'blue'
         self.control_panel.pack()
         self.frame.pack(fill=tk.BOTH, expand=True)
         
@@ -1062,14 +1193,14 @@ class ViewWindow(tk.Toplevel):
 
     def create_tab(self, name, top):
         self.tabs_ids.append(name)
-        self.tabs[name] = tk.Frame(self)
+        self.tabs[name] = TestFrame(self, self)
         self.control_box['values'] = self.tabs_ids
         top.destroy()
 
     def switch_tab(self, event):
         self.frame.pack_forget()
         self.frame = self.tabs[self.selected_tab_id.get()]
-        self.frame.pack()
+        self.frame.pack(fill=tk.BOTH, expand=True)
 
 
 class MainWindow(tk.Frame):
