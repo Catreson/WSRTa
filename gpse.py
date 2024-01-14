@@ -1,5 +1,8 @@
 import sys
 import csv 
+import math
+from geopy import distance
+from numpy import inf
 
 def findTimeDrift(filename):
     timdrift = 1
@@ -60,18 +63,74 @@ def prepareForSas(filename, timdrift = 0, save_file = False):
 
 def prepareForWeb(f, fromFile = False):
     datal = []
+    kmh_to_ms = 1.0/3.6
+    g_force_to_m_s2 = 9.80665
+    m_s2_to_g_force = 1 / g_force_to_m_s2
+    prev_v = 0
+    prev_fi = 0
+    prev_time = 0
+    prev_lat = 0
+    prev_lon = 0
     if fromFile:
         f = open(f, 'r')
+
+    cntg = 0
     for line in f:
         lin = line.split(',') if fromFile else line
         if lin[0] == 'gps':
             tmp = lin[2].split(' ')
+            lat = float(tmp[1])
+            lon = float(tmp[0])
+            tim = float(lin[1])
+            v = float(tmp[2])
+            fi = float(tmp[3])
+            if cntg == 0:
+                acc_t = 0
+                acc_n = 0
+                corner_radius = 0
+                distans = 0
+                prev_distans = 0
+                prev_lat = float(tmp[1])
+                prev_lon = float(tmp[0])
+                prev_time = float(lin[1])
+                prev_v = float(tmp[2])
+                prev_fi = math.radians(float(tmp[3]))
+            else:
+                acc_t = kmh_to_ms * (v - prev_v) / (tim - prev_time)
+                distans += float(distance.distance((prev_lat, prev_lon), (lat, lon)).m)
+                if math.radians(fi) - prev_fi != 0:
+                    if abs(fi - math.degrees(prev_fi)) > 90:
+                        if fi > math.degrees(prev_fi):
+                            corner_radius = (distans - prev_distans) / ((math.radians(fi) - prev_fi) - 2*math.pi)
+                        else:
+                            corner_radius = (distans - prev_distans) / ((math.radians(fi) - prev_fi) + 2*math.pi)
+                    else:
+                        corner_radius = (distans - prev_distans) / (math.radians(fi) - prev_fi)
+                else:
+                    corner_radius = inf
+                acc_n = (kmh_to_ms * (v + prev_v) / 2)**2 / corner_radius if corner_radius != 0 else inf
+                prev_distans = distans
+                prev_lat = float(tmp[1])
+                prev_lon = float(tmp[0])
+                prev_time = float(lin[1])
+                prev_v = float(tmp[2])
+                prev_fi = math.radians(float(tmp[3]))
+            
             datal.append(['longitude',lin[1],tmp[0]])
             datal.append(['latitude',lin[1],tmp[1]])
             datal.append(['gps_speed',lin[1],tmp[2]])
             datal.append(['course',lin[1],tmp[3]])
+            datal.append(['acc_t',lin[1],acc_t])
+            datal.append(['acc_n',lin[1],acc_n])
+            datal.append(['acc_t_g',lin[1],m_s2_to_g_force * acc_t])
+            datal.append(['acc_n_g',lin[1],m_s2_to_g_force * acc_n])
+            datal.append(['radius',lin[1],corner_radius])
+            datal.append(['distance',lin[1],distans])
+            cntg += 1
+
         elif lin[0] == 'susp':
             tmp = line[2].split(' ')
+
             datal.append(['front_susp',lin[1],tmp[0]])
             datal.append(['rear_susp',lin[1],tmp[1]])
             datal.append(['steering_angle',lin[1],tmp[2]])

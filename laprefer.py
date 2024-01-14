@@ -6,6 +6,7 @@ from geopy import distance
 from pathlib import Path
 from lap import Lap
 from bs4 import BeautifulSoup
+from lapsplit import calculateDistance, compareDistance
 
 def referLapsToLap1(laps = ['l0',pd.DataFrame()], reference_lap_index = 0, reference_lap_ID='l0'):
     for name in laps:
@@ -18,13 +19,6 @@ def referLapsToLap1(laps = ['l0',pd.DataFrame()], reference_lap_index = 0, refer
         b =  float(line[0]) - float(line[1]) * argument
         tripwire = {'A':argument, 'B': -1, 'C':b}
         #print(f'Lat: {line[0]}, Calculated_lat: {tripwire["A"] * float(line[1]) + tripwire["C"]}')
-        def calculateDistance(A, B, C, x, y):
-            #print(f'Distance: {abs(A*x + B* y + C) / math.sqrt(A**2 + B**2)}')
-            return abs(A*x + B* y + C) / math.sqrt(A**2 + B**2)
-        def compareDistance(A, B, C, x1, y1, x2, y2):
-            if calculateDistance(A, B, C, x1, y1) > calculateDistance(A, B, C, x2, y2):
-                return True
-            return False
         for lap in laps:
             if lap[0] != reference_lap_ID:
                 if index_list[lap[0]] < len(lap[1]['longitude']) - 2:
@@ -64,12 +58,6 @@ def referLapsToLap(laps = [Lap()], reference_lap_ID='l0'):
         argument = argument / deformation
         b =  row['latitude'] - row['longitude'] * argument
         tripwire = {'A':argument, 'B': -1, 'C':b}
-        def calculateDistance(A, B, C, x, y):
-            return abs(A*x + B* y + C) / math.sqrt(A**2 + B**2)
-        def compareDistance(A, B, C, x1, y1, x2, y2):
-            if calculateDistance(A, B, C, x1, y1) > calculateDistance(A, B, C, x2, y2):
-                return True
-            return False
         for lap in laps:
             if lap.ID != reference_lap_ID:
                 if index_list[lap.ID] < len(lap.df['longitude']) - 2:
@@ -111,12 +99,6 @@ def referLapsToLap2(laps = [Lap()], reference_lap_ID='l0'):
             argument = -1 / argument
         b =  row['latitude'] - row['longitude'] * argument
         tripwire = {'A':argument, 'B': -1, 'C':b}
-        def calculateDistance(A, B, C, x, y):
-            return abs(A*x + B* y + C) / math.sqrt(A**2 + B**2)
-        def compareDistance(A, B, C, x1, y1, x2, y2):
-            if calculateDistance(A, B, C, x1, y1) > calculateDistance(A, B, C, x2, y2):
-                return True
-            return False
         for lap in laps:
             if lap.ID != reference_lap_ID:
                 if index_list[lap.ID] < len(lap.df['longitude']) - 2:
@@ -157,7 +139,7 @@ def getLaps(path, **kwargs):
             lap.calculateAcceleration()
         else:
             lap.calculateAcceleration2()
-
+        
         if lap.ID in time_dic:
             lap.setLaptime(time_dic[lap.ID])
         else:

@@ -1,7 +1,11 @@
 import math
 import numpy as np
+import statistics
 import pandas as pd
 from geopy import distance
+from pykalman import KalmanFilter
+from numba import njit
+import statsmodels.api as sm
 class Lap:
     def __init__(self, **kwargs):
         self.df = kwargs.get('df', None)
@@ -33,19 +37,20 @@ class Lap:
         self.df.to_csv(self.path)
 
     def calculateTrackDistance(self):
-        distances = []
         lap = self.df
+        if 'distance' in lap:
+            start = lap['distance'][0]
+            distances = list(map(lambda x: x - start, lap['distance']))
+            lap['distance'] = distances
+            return
+        distances = []
         prev_lat = 0
         prev_lon = 0
         suma = 0 
-        if 'distance' in lap:
-            return
-        for i, line in enumerate(list(zip(lap['latitude'], lap['longitude']))):
-            if i == 0:
-                distances.append(0)
-                prev_lat = line[0]
-                prev_lon = line[1]
-                continue
+        distances.append(0)
+        prev_lat = lap['latitude'][0]
+        prev_lon = lap['longitude'][0]
+        for line in zip(lap['latitude'], lap['longitude']):
             curr_step = distance.distance((prev_lat, prev_lon), (line[0], line[1])).m
             suma += curr_step
             distances.append(suma)
@@ -54,19 +59,19 @@ class Lap:
         lap['distance'] = distances
 
     def calculateAcceleration2(self, **kwargs):
+        lap = self.df
+        if 'acc_n' in lap:
+            return
         kmh_to_ms = 1.0/3.6
         g_force_to_m_s2 = 9.81
         m_s2_to_g_force = 1 / g_force_to_m_s2
         acc_t_list = []
         acc_n_list = []
         corner_radius_list = []
-        lap = self.df
 
         prev_v = 0
         prev_fi = 0
         prev_time = 0
-        if 'acc_n' in lap:
-            return
         for i, row in lap.iterrows():
             if i == 0:
                 acc_t_list.append(0)
@@ -102,10 +107,12 @@ class Lap:
         lap['radius'] = corner_radius_list
 
     def calculateAcceleration(self):
-        kmh_to_ms = 1.0/3.6
-        g_force_to_m_s2 = 9.81
-        m_s2_to_g_force = 1 / g_force_to_m_s2
         lap = self.df
+        if 'acc_n' in lap.columns:
+            return
+        kmh_to_ms = 1.0/3.6
+        g_force_to_m_s2 = 9.80665
+        m_s2_to_g_force = 1 / g_force_to_m_s2
 
         acc_t_list = []
         acc_n_list = []
@@ -115,8 +122,6 @@ class Lap:
         prev_s = 0
         prev_fi = 0
         prev_time = 0
-        if 'acc_n' in lap.columns:
-            return
         for i, row in lap.iterrows():
             if i == 0:
                 acc_t_list.append(0)
@@ -153,4 +158,31 @@ class Lap:
         lap['acc_t_g'] = [m_s2_to_g_force * x for x in acc_t_list]
         lap['radius'] = corner_radius_list                
                     
-        
+    def simpleSmoother(self, window = 30, weight = 0.8, max_diff = 0.2, tag = 'acc_n_g'):
+        series = []
+        for i in range(window):
+            series.append(self.df[tag].iloc[i])
+        for i in range(window, len(self.df[tag])-window):
+            mean1 = statistics.mean(self.df[tag][i-window:i])
+            mean2 = statistics.mean(self.df[tag][i+1:i+window+1]) 
+            mean = statistics.mean([mean1, mean2])
+            if self.df[tag].iloc[i] - mean > self.df[tag].iloc[i] * max_diff:
+                series.append(mean)
+            else:
+                series.append(mean * weight + (1-weight) * self.df[tag].iloc[i])
+        for i in range(len(series), len(series) + window):
+            series.append(self.df[tag].iloc[i])
+        self.df[f'{tag}_SS'] = series
+    def simpleSmoother1(self, tag = 'acc_n_g'):
+        series = self.df[tag]
+        kf = KalmanFilter(transition_matrices=[1],
+                      observation_matrices=[1],
+                      initial_state_mean=series.iloc[0],
+                      initial_state_covariance=1,
+                      observation_covariance=1,
+                      transition_covariance=0.01)
+        means, coef = kf.filter(series)
+        flatted = means.flatten()
+        self.df[f'{tag}_SK'] = flatted
+
+
