@@ -3,7 +3,7 @@
  Designed to provide free tool for data analysis from different acquisition systems simultaneously.<br>
  Made using TkInter.<br>
  When first acceptable debugged version will be ready, I will post standalone built for Windows and howto instruction.<br>
-# Main fetures in currently developed version:<br>
+# Main features in currently developed version:<br>
 - Parsing our motorcycle .CSV "event" long format to uniform (.WSRT) wide format, with linear interpolation.
 - Getting individual laps from .WSRT file, selecting finish line by drawing it on a map.
 - MapView, plot and scatter tiles for data analysis.
