@@ -2,3 +2,6 @@
 __pycache__/
 *.wsrt
 gps_rad5/
+Lib/
+Scripts/
+*.cfg
