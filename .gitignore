@@ -5,3 +5,4 @@ gps_rad5/
 Lib/
 Scripts/
 *.cfg
+share/
